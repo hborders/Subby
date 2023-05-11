@@ -14,10 +14,12 @@ class ViewController: UIViewController {
     override func loadView() {
         super.loadView()
         
-        self.view.backgroundColor = UIColor.white
+        self.view.translatesAutoresizingMaskIntoConstraints = false
+        
+        self.view.backgroundColor = UIColor.red
         let collectionViewFlowLayout: UICollectionViewFlowLayout = UICollectionViewFlowLayout()
-        let dimension = min(self.view.bounds.width, self.view.bounds.height) / 3 - 20
-        collectionViewFlowLayout.itemSize = CGSize(width: dimension, height: dimension)
+        //        let dimension = min(self.view.bounds.width, self.view.bounds.height) / 3 - collectionViewFlowLayout.minimumInteritemSpacing
+        //        collectionViewFlowLayout.itemSize = CGSize(width: dimension, height: dimension)
         self.collectionView = UICollectionView(frame: self.view.bounds, collectionViewLayout: collectionViewFlowLayout)
         self.collectionView.register(BlankCollectionViewCell.self, forCellWithReuseIdentifier: BlankCollectionViewCell.identifier)
         self.collectionView.register(NumberCollectionViewCell.self, forCellWithReuseIdentifier: NumberCollectionViewCell.identifier)
@@ -26,6 +28,23 @@ class ViewController: UIViewController {
         self.collectionView.delegate = self
         
         self.view.addSubview(self.collectionView)
+        
+        self.collectionView.backgroundColor = UIColor.orange
+        
+        self.collectionView.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            self.collectionView.widthAnchor.constraint(equalTo: self.collectionView.heightAnchor),
+            self.view.layoutMarginsGuide.centerXAnchor.constraint(equalTo: self.collectionView.centerXAnchor),
+            self.view.layoutMarginsGuide.centerYAnchor.constraint(equalTo: self.collectionView.centerYAnchor),
+            self.collectionView.widthAnchor.constraint(lessThanOrEqualTo: self.view.layoutMarginsGuide.widthAnchor),
+            self.collectionView.heightAnchor.constraint(lessThanOrEqualTo: self.view.layoutMarginsGuide.heightAnchor),
+        ])
+        
+        // this can be either width or height since width = height above
+        let lowPriorityWidthConstraint = self.collectionView.widthAnchor.constraint(equalTo:self.view.layoutMarginsGuide.widthAnchor)
+        lowPriorityWidthConstraint.priority = .defaultHigh
+        lowPriorityWidthConstraint.isActive = true
     }
 }
 
@@ -81,6 +100,15 @@ extension ViewController: UICollectionViewDataSource {
 }
 
 extension ViewController: UICollectionViewDelegateFlowLayout {
+    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+        guard let collectionViewFlowLayout = collectionViewLayout as? UICollectionViewFlowLayout,
+              let collectionView = collectionViewFlowLayout.collectionView else {
+            abort()
+        }
+        
+        let dimension = min(collectionView.frame.width, collectionView.frame.height) / 3 - collectionViewFlowLayout.minimumInteritemSpacing
+        return CGSize(width: dimension, height: dimension)
+    }
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         switch (indexPath.item) {
         case 0,1:
@@ -114,6 +142,8 @@ class BlankCollectionViewCell: UICollectionViewCell {
     
     override init(frame: CGRect) {
         super.init(frame: frame)
+        
+        self.backgroundColor = UIColor.black
     }
     
     required init?(coder: NSCoder) {
@@ -132,13 +162,22 @@ class NumberCollectionViewCell: UICollectionViewCell {
     private let numberLabel: UILabel
     
     override init(frame: CGRect) {
-        numberLabel = UILabel()
-        numberLabel.textAlignment = .center
+        self.numberLabel = UILabel()
+        self.numberLabel.textAlignment = .center
         
         super.init(frame: frame)
         
-        numberLabel.frame = self.contentView.bounds
-        self.contentView.addSubview(numberLabel)
+        self.backgroundColor = UIColor.yellow
+        
+        self.contentView.addSubview(self.numberLabel)
+        
+        self.numberLabel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            self.contentView.layoutMarginsGuide.topAnchor.constraint(equalTo: self.numberLabel.topAnchor),
+            self.contentView.layoutMarginsGuide.leadingAnchor.constraint(equalTo: self.numberLabel.leadingAnchor),
+            self.contentView.layoutMarginsGuide.bottomAnchor.constraint(equalTo: self.numberLabel.bottomAnchor),
+            self.contentView.layoutMarginsGuide.trailingAnchor.constraint(equalTo: self.numberLabel.trailingAnchor),
+        ])
     }
     
     required init?(coder: NSCoder) {
@@ -151,7 +190,7 @@ class NumberCollectionViewCell: UICollectionViewCell {
     }
     
     func setNumber(_ number: Int) {
-        numberLabel.text = "\(number)"
+        self.numberLabel.text = "\(number)"
     }
 }
 
@@ -161,14 +200,23 @@ class TotalCollectionViewCell: UICollectionViewCell {
     private let totalLabel: UILabel
     
     override init(frame: CGRect) {
-        totalLabel = UILabel()
-        totalLabel.font = UIFont.boldSystemFont(ofSize: 16)
-        totalLabel.textAlignment = .center
+        self.totalLabel = UILabel()
+        self.totalLabel.font = UIFont.boldSystemFont(ofSize: 16)
+        self.totalLabel.textAlignment = .center
         
         super.init(frame: frame)
         
-        totalLabel.frame = self.contentView.bounds
-        self.contentView.addSubview(totalLabel)
+        self.backgroundColor = UIColor.green
+        
+        self.contentView.addSubview(self.totalLabel)
+        
+        self.totalLabel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            self.contentView.layoutMarginsGuide.topAnchor.constraint(equalTo: self.totalLabel.topAnchor),
+            self.contentView.layoutMarginsGuide.leadingAnchor.constraint(equalTo: self.totalLabel.leadingAnchor),
+            self.contentView.layoutMarginsGuide.bottomAnchor.constraint(equalTo: self.totalLabel.bottomAnchor),
+            self.contentView.layoutMarginsGuide.trailingAnchor.constraint(equalTo: self.totalLabel.trailingAnchor),
+        ])
     }
     
     required init?(coder: NSCoder) {
@@ -181,6 +229,6 @@ class TotalCollectionViewCell: UICollectionViewCell {
     }
     
     func setTotal(_ total: Int) {
-        totalLabel.text = "\(total)"
+        self.totalLabel.text = "\(total)"
     }
 }
