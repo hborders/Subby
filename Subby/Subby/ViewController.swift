@@ -7,7 +7,136 @@
 
 import UIKit
 
+// This is a fixed-increment version of Java 8's SplittableRandom generator.
+// It is a very fast generator passing BigCrush, with 64 bits of state.
+// See http://dx.doi.org/10.1145/2714064.2660195 and
+// http://docs.oracle.com/javase/8/docs/api/java/util/SplittableRandom.html
+//
+// Derived from public domain C implementation by Sebastiano Vigna
+// See http://xoshiro.di.unimi.it/splitmix64.c
+struct SplitMix64: RandomNumberGenerator {
+    private var state: UInt64
+
+    public init(seed: UInt64) {
+        self.state = seed
+    }
+
+    public mutating func next() -> UInt64 {
+        self.state &+= 0x9e3779b97f4a7c15
+        var z: UInt64 = self.state
+        z = (z ^ (z &>> 30)) &* 0xbf58476d1ce4e5b9
+        z = (z ^ (z &>> 27)) &* 0x94d049bb133111eb
+        return z ^ (z &>> 31)
+    }
+}
+
+struct Grid {
+    let size: Int
+    let sizeAndTotal: Int
+    let gridCellCount: Int
+    var numberCells: [NumberCell]
+    
+    init(size: Int) {
+        self.size = size
+        self.sizeAndTotal = size + 1
+        self.gridCellCount = self.sizeAndTotal * self.sizeAndTotal
+        
+        var randomNumberGenerator = SplitMix64(seed:69)
+        var numberCells: [NumberCell] = []
+        for _ in 0..<size*size {
+            let puzzleValue = Int.random(in: 0...9, using: &randomNumberGenerator)
+            let countsTowardTotal = Bool.random(using: &randomNumberGenerator)
+            let numberCell = NumberCell(puzzleValue: puzzleValue, countsTowardTotal: countsTowardTotal, destiny: .undecided)
+            numberCells.append(numberCell)
+        }
+        self.numberCells = numberCells
+    }
+    
+    func gridCell(for indexPath: IndexPath) -> GridCell {
+        let x = indexPath.item % self.sizeAndTotal
+        let y = indexPath.item / self.sizeAndTotal
+        
+        guard x < self.sizeAndTotal && y < self.sizeAndTotal else {
+            fatalError("Item: \(indexPath.item) out of bounds: \(self.gridCellCount)")
+        }
+        if x == self.size && y == self.size {
+            return .blank
+        } else if x == self.size {
+            let numberCellsStartIndex = self.size * y
+            let numberCellsEndIndex = numberCellsStartIndex + self.size
+            var total = 0
+            for i in numberCellsStartIndex..<numberCellsEndIndex {
+                let numberCell = self.numberCells[i]
+                total += numberCell.totalValue
+            }
+            return .total(total: total)
+        } else if y == self.size {
+            let numberCellsStartIndex = x
+            let numberCellsEndIndex = numberCellsStartIndex + (self.size * self.size)
+            var total = 0
+            for i in stride(from: numberCellsStartIndex, to: numberCellsEndIndex, by: self.size) {
+                let numberCell = self.numberCells[i]
+                total += numberCell.totalValue
+            }
+            return .total(total: total)
+        } else {
+            let numberCellsIndex = x + (self.size * y)
+            let numberCell = numberCells[numberCellsIndex]
+            return .number(numberCell: numberCell)
+        }
+    }
+}
+
+enum GridCell {
+    case number(numberCell: NumberCell)
+    case total(total: Int)
+    case blank
+}
+
+struct NumberCell {
+    let puzzleValue: Int
+    let countsTowardTotal: Bool
+    var destiny: Destiny
+    
+    enum Destiny {
+        case undecided
+        case yes
+        case no
+    }
+    
+    var totalValue: Int {
+        if (self.countsTowardTotal) {
+            return self.puzzleValue
+        } else {
+            return 0
+        }
+    }
+}
+
 class ViewController: UIViewController {
+    
+    let grid: Grid
+    
+    init(size: Int) {
+        self.grid = Grid(size: size)
+        
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    @available(*, unavailable)
+    init() {
+        abort()
+    }
+    
+    @available(*, unavailable)
+    override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
+        abort()
+    }
+    
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        abort()
+    }
     
     var collectionView: UICollectionView!
     
@@ -18,8 +147,6 @@ class ViewController: UIViewController {
         
         self.view.backgroundColor = UIColor.red
         let collectionViewFlowLayout: UICollectionViewFlowLayout = UICollectionViewFlowLayout()
-        //        let dimension = min(self.view.bounds.width, self.view.bounds.height) / 3 - collectionViewFlowLayout.minimumInteritemSpacing
-        //        collectionViewFlowLayout.itemSize = CGSize(width: dimension, height: dimension)
         self.collectionView = UICollectionView(frame: self.view.bounds, collectionViewLayout: collectionViewFlowLayout)
         self.collectionView.register(BlankCollectionViewCell.self, forCellWithReuseIdentifier: BlankCollectionViewCell.identifier)
         self.collectionView.register(NumberCollectionViewCell.self, forCellWithReuseIdentifier: NumberCollectionViewCell.identifier)
@@ -48,53 +175,35 @@ class ViewController: UIViewController {
     }
 }
 
+struct Coordinate {
+    let x: Int
+    let y: Int
+}
+
 extension ViewController: UICollectionViewDataSource {
     func numberOfSections(in collectionView: UICollectionView) -> Int {
         1
     }
     
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return 9
+        return self.grid.gridCellCount
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        switch (indexPath.item) {
-        case 0:
-            let numberCollectionViewCell = collectionView.dequeueNumberCollectionViewCell(for: indexPath)
-            numberCollectionViewCell.setNumber(0)
-            return numberCollectionViewCell
-        case 1:
-            let numberCollectionViewCell = collectionView.dequeueNumberCollectionViewCell(for: indexPath)
-            numberCollectionViewCell.setNumber(1)
-            return numberCollectionViewCell
-        case 2:
-            let totalCollectionViewCell = collectionView.dequeueTotalCollectionViewCell(for: indexPath)
-            totalCollectionViewCell.setTotal(1)
-            return totalCollectionViewCell
-        case 3:
-            let numberCollectionViewCell = collectionView.dequeueNumberCollectionViewCell(for: indexPath)
-            numberCollectionViewCell.setNumber(3)
-            return numberCollectionViewCell
-        case 4:
-            let numberCollectionViewCell = collectionView.dequeueNumberCollectionViewCell(for: indexPath)
-            numberCollectionViewCell.setNumber(4)
-            return numberCollectionViewCell
-        case 5:
-            let totalCollectionViewCell = collectionView.dequeueTotalCollectionViewCell(for: indexPath)
-            totalCollectionViewCell.setTotal(7)
-            return totalCollectionViewCell
-        case 6:
-            let totalCollectionViewCell = collectionView.dequeueTotalCollectionViewCell(for: indexPath)
-            totalCollectionViewCell.setTotal(3)
-            return totalCollectionViewCell
-        case 7:
-            let totalCollectionViewCell = collectionView.dequeueTotalCollectionViewCell(for: indexPath)
-            totalCollectionViewCell.setTotal(5)
-            return totalCollectionViewCell
-        case 8:
+        switch self.grid.gridCell(for: indexPath) {
+        case .blank:
             return collectionView.dequeueBlankCollectionViewCell(for: indexPath)
-        default:
-            abort()
+        case .number(let numberCell):
+            let numberCollectionViewCell = collectionView.dequeueNumberCollectionViewCell(for: indexPath)
+            numberCollectionViewCell.setNumber(numberCell.puzzleValue)
+            if numberCell.countsTowardTotal {
+                numberCollectionViewCell.backgroundColor = UIColor.blue
+            }
+            return numberCollectionViewCell
+        case .total(let total):
+            let totalCollectionViewCell = collectionView.dequeueTotalCollectionViewCell(for: indexPath)
+            totalCollectionViewCell.setTotal(total)
+            return totalCollectionViewCell
         }
     }
 }
@@ -106,22 +215,10 @@ extension ViewController: UICollectionViewDelegateFlowLayout {
             abort()
         }
         
-        let dimension = min(collectionView.frame.width, collectionView.frame.height) / 3 - collectionViewFlowLayout.minimumInteritemSpacing
+        let dimension = min(collectionView.frame.width, collectionView.frame.height) / Double(self.grid.sizeAndTotal) - collectionViewFlowLayout.minimumInteritemSpacing
         return CGSize(width: dimension, height: dimension)
     }
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        switch (indexPath.item) {
-        case 0,1:
-            print("Toggled number: \(indexPath.item)")
-        case 2:
-            break
-        case 3,4:
-            print("Toggled number: \(indexPath.item)")
-        case 5,6,7,8:
-            break
-        default:
-            abort()
-        }
     }
 }
 
@@ -163,6 +260,7 @@ class NumberCollectionViewCell: UICollectionViewCell {
     
     override init(frame: CGRect) {
         self.numberLabel = UILabel()
+        self.numberLabel.font = UIFont.systemFont(ofSize: 14)
         self.numberLabel.textAlignment = .center
         
         super.init(frame: frame)
@@ -187,6 +285,7 @@ class NumberCollectionViewCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         
+        self.backgroundColor = UIColor.yellow
     }
     
     func setNumber(_ number: Int) {
@@ -201,7 +300,7 @@ class TotalCollectionViewCell: UICollectionViewCell {
     
     override init(frame: CGRect) {
         self.totalLabel = UILabel()
-        self.totalLabel.font = UIFont.boldSystemFont(ofSize: 16)
+        self.totalLabel.font = UIFont.boldSystemFont(ofSize: 14)
         self.totalLabel.textAlignment = .center
         
         super.init(frame: frame)
