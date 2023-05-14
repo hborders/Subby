@@ -30,6 +30,16 @@ struct SplitMix64: RandomNumberGenerator {
     }
 }
 
+struct NumberCellCoordinate {
+    let x: Int
+    let y: Int
+}
+
+struct AllCoordinate {
+    let x: Int
+    let y: Int
+}
+
 struct Grid {
     let size: Int
     let sizeAndTotal: Int
@@ -43,79 +53,160 @@ struct Grid {
         
         var randomNumberGenerator = SplitMix64(seed:69)
         var numberCells: [NumberCell] = []
-        for _ in 0..<size*size {
+        for index in 0..<size*size {
             let puzzleValue = Int.random(in: 0...9, using: &randomNumberGenerator)
             let countsTowardTotal = Bool.random(using: &randomNumberGenerator)
-            let numberCell = NumberCell(puzzleValue: puzzleValue, countsTowardTotal: countsTowardTotal, destiny: .undecided)
+            let numberCell = NumberCell(index: index, puzzleValue: puzzleValue, countsTowardTotal: countsTowardTotal, destiny: .undecided)
             numberCells.append(numberCell)
         }
         self.numberCells = numberCells
     }
     
-    func gridCell(for indexPath: IndexPath) -> GridCell {
+    func allCoordinate(for indexPath: IndexPath) -> AllCoordinate {
         let x = indexPath.item % self.sizeAndTotal
         let y = indexPath.item / self.sizeAndTotal
         
         guard x < self.sizeAndTotal && y < self.sizeAndTotal else {
             fatalError("Item: \(indexPath.item) out of bounds: \(self.gridCellCount)")
         }
-        if x == self.size && y == self.size {
+        
+        return AllCoordinate(x: x, y: y)
+    }
+    
+    func numberCellCoordinate(for indexPath: IndexPath) -> NumberCellCoordinate {
+        let allCoordinate = allCoordinate(for: indexPath)
+        guard allCoordinate.x < self.size && allCoordinate.y < self.size else {
+            fatalError("Item: \(indexPath.item) at AllCoordinate: \(allCoordinate) is not in NumberCellCoordinate range: [0,\(self.size)), [0,\(self.size))")
+        }
+        
+        return NumberCellCoordinate(x: allCoordinate.x, y: allCoordinate.y)
+    }
+    
+    func indexPath(for numberCellCoordinate: NumberCellCoordinate) -> IndexPath {
+        let item = numberCellCoordinate.y * self.sizeAndTotal + numberCellCoordinate.x
+        return IndexPath(item: item, section: 0)
+    }
+    
+    func indexPath(for allCoordinate: AllCoordinate) -> IndexPath {
+        let item = allCoordinate.y * self.sizeAndTotal + allCoordinate.x
+        return IndexPath(item: item, section: 0)
+    }
+    
+    func totalGridCellIndexPaths(for numberCellCoordinate: NumberCellCoordinate) -> [IndexPath] {
+        return [
+            indexPath(for: AllCoordinate(x: self.size, y: numberCellCoordinate.y)),
+            indexPath(for: AllCoordinate(x: numberCellCoordinate.x, y: self.size)),
+        ]
+    }
+    
+    func gridCell(for indexPath: IndexPath) -> GridCell {
+        let allCoordinate = allCoordinate(for: indexPath)
+        
+        if allCoordinate.x == self.size && allCoordinate.y == self.size {
             return .blank
-        } else if x == self.size {
-            let numberCellsStartIndex = self.size * y
+        } else if allCoordinate.x == self.size {
+            let numberCellsStartIndex = self.size * allCoordinate.y
             let numberCellsEndIndex = numberCellsStartIndex + self.size
-            var total = 0
+            var expectedTotal = 0
+            var actualTotal = 0
             for i in numberCellsStartIndex..<numberCellsEndIndex {
                 let numberCell = self.numberCells[i]
-                total += numberCell.totalValue
+                expectedTotal += numberCell.expectedValue
+                actualTotal += numberCell.actualValue
             }
-            return .total(total: total)
-        } else if y == self.size {
-            let numberCellsStartIndex = x
+            let finished = expectedTotal == actualTotal
+            return .total(total: expectedTotal, finished: finished)
+        } else if allCoordinate.y == self.size {
+            let numberCellsStartIndex = allCoordinate.x
             let numberCellsEndIndex = numberCellsStartIndex + (self.size * self.size)
-            var total = 0
+            var expectedTotal = 0
+            var actualTotal = 0
             for i in stride(from: numberCellsStartIndex, to: numberCellsEndIndex, by: self.size) {
                 let numberCell = self.numberCells[i]
-                total += numberCell.totalValue
+                expectedTotal += numberCell.expectedValue
+                actualTotal += numberCell.actualValue
             }
-            return .total(total: total)
+            let finished = expectedTotal == actualTotal
+            return .total(total: expectedTotal, finished: finished)
         } else {
-            let numberCellsIndex = x + (self.size * y)
+            let numberCellsIndex = allCoordinate.x + (self.size * allCoordinate.y)
             let numberCell = numberCells[numberCellsIndex]
             return .number(numberCell: numberCell)
+        }
+    }
+    
+    mutating func updatedIndexPathsAfterTappingGridCell(at indexPath: IndexPath) -> [IndexPath] {
+        let gridCell = gridCell(for: indexPath)
+        switch gridCell {
+        case .blank, .total:
+            return []
+        case .number(var numberCell):
+            numberCell.tap()
+            self.numberCells[numberCell.index] = numberCell
+            
+            let numberCellCoordinate = numberCellCoordinate(for: indexPath)
+            let totalGridCellIndexPaths = totalGridCellIndexPaths(for: numberCellCoordinate)
+            return totalGridCellIndexPaths + [indexPath]
         }
     }
 }
 
 enum GridCell {
     case number(numberCell: NumberCell)
-    case total(total: Int)
+    case total(total: Int, finished: Bool)
     case blank
 }
 
 struct NumberCell {
+    let index: Int
     let puzzleValue: Int
     let countsTowardTotal: Bool
     var destiny: Destiny
     
     enum Destiny {
         case undecided
-        case yes
         case no
+        case yes
+        
+        func next() -> Destiny {
+            switch self {
+            case .undecided:
+                return .no
+            case .no:
+                return .yes
+            case .yes:
+                return .undecided
+            }
+        }
     }
     
-    var totalValue: Int {
+    mutating func tap() {
+        self.destiny = self.destiny.next()
+    }
+    
+    var expectedValue: Int {
         if (self.countsTowardTotal) {
             return self.puzzleValue
         } else {
             return 0
         }
     }
+    
+    var actualValue: Int {
+        switch self.destiny {
+        case .undecided:
+            return self.puzzleValue
+        case .no:
+            return 0
+        case .yes:
+            return self.puzzleValue
+        }
+    }
 }
 
 class ViewController: UIViewController {
     
-    let grid: Grid
+    var grid: Grid
     
     init(size: Int) {
         self.grid = Grid(size: size)
@@ -145,7 +236,6 @@ class ViewController: UIViewController {
         
         self.view.translatesAutoresizingMaskIntoConstraints = false
         
-        self.view.backgroundColor = UIColor.red
         let collectionViewFlowLayout: UICollectionViewFlowLayout = UICollectionViewFlowLayout()
         self.collectionView = UICollectionView(frame: self.view.bounds, collectionViewLayout: collectionViewFlowLayout)
         self.collectionView.register(BlankCollectionViewCell.self, forCellWithReuseIdentifier: BlankCollectionViewCell.identifier)
@@ -175,11 +265,6 @@ class ViewController: UIViewController {
     }
 }
 
-struct Coordinate {
-    let x: Int
-    let y: Int
-}
-
 extension ViewController: UICollectionViewDataSource {
     func numberOfSections(in collectionView: UICollectionView) -> Int {
         1
@@ -190,19 +275,17 @@ extension ViewController: UICollectionViewDataSource {
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        switch self.grid.gridCell(for: indexPath) {
+        let gridCell = self.grid.gridCell(for: indexPath)
+        switch gridCell {
         case .blank:
             return collectionView.dequeueBlankCollectionViewCell(for: indexPath)
         case .number(let numberCell):
             let numberCollectionViewCell = collectionView.dequeueNumberCollectionViewCell(for: indexPath)
-            numberCollectionViewCell.setNumber(numberCell.puzzleValue)
-            if numberCell.countsTowardTotal {
-                numberCollectionViewCell.backgroundColor = UIColor.blue
-            }
+            numberCollectionViewCell.update(number: numberCell.puzzleValue, destiny: numberCell.destiny)
             return numberCollectionViewCell
-        case .total(let total):
+        case .total(let total, let finished):
             let totalCollectionViewCell = collectionView.dequeueTotalCollectionViewCell(for: indexPath)
-            totalCollectionViewCell.setTotal(total)
+            totalCollectionViewCell.update(total: total, finished: finished)
             return totalCollectionViewCell
         }
     }
@@ -219,6 +302,12 @@ extension ViewController: UICollectionViewDelegateFlowLayout {
         return CGSize(width: dimension, height: dimension)
     }
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        var grid = self.grid
+        let updatedIndexPaths = grid.updatedIndexPathsAfterTappingGridCell(at: indexPath)
+        self.grid = grid
+        if !updatedIndexPaths.isEmpty {
+            collectionView.reloadItems(at: updatedIndexPaths)
+        }
     }
 }
 
@@ -284,12 +373,20 @@ class NumberCollectionViewCell: UICollectionViewCell {
     
     override func prepareForReuse() {
         super.prepareForReuse()
-        
-        self.backgroundColor = UIColor.yellow
     }
     
-    func setNumber(_ number: Int) {
+    func update(number: Int, destiny: NumberCell.Destiny) {
         self.numberLabel.text = "\(number)"
+        let backgroundColor: UIColor
+        switch destiny {
+        case .undecided:
+            backgroundColor = UIColor.yellow
+        case .no:
+            backgroundColor = UIColor.red
+        case .yes:
+            backgroundColor = UIColor.green
+        }
+        self.backgroundColor = backgroundColor
     }
 }
 
@@ -300,12 +397,11 @@ class TotalCollectionViewCell: UICollectionViewCell {
     
     override init(frame: CGRect) {
         self.totalLabel = UILabel()
-        self.totalLabel.font = UIFont.boldSystemFont(ofSize: 14)
         self.totalLabel.textAlignment = .center
         
         super.init(frame: frame)
         
-        self.backgroundColor = UIColor.green
+        self.backgroundColor = UIColor.purple
         
         self.contentView.addSubview(self.totalLabel)
         
@@ -327,7 +423,16 @@ class TotalCollectionViewCell: UICollectionViewCell {
         
     }
     
-    func setTotal(_ total: Int) {
+    func update(total: Int, finished: Bool) {
         self.totalLabel.text = "\(total)"
+        if finished {
+            self.backgroundColor = .white
+            self.totalLabel.font = UIFont.boldSystemFont(ofSize: 14)
+            self.totalLabel.textColor = .black
+        } else {
+            self.backgroundColor = .purple
+            self.totalLabel.font = UIFont.systemFont(ofSize: 14)
+            self.totalLabel.textColor = .white
+        }
     }
 }
