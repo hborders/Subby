@@ -41,17 +41,19 @@ struct AllCoordinate {
 }
 
 struct Grid {
+    let seed: Int
     let size: Int
     let sizeAndTotal: Int
     let gridCellCount: Int
     var numberCells: [NumberCell]
     
-    init(size: Int) {
+    init(seed: Int, size: Int) {
+        self.seed = seed
         self.size = size
         self.sizeAndTotal = size + 1
         self.gridCellCount = self.sizeAndTotal * self.sizeAndTotal
         
-        var randomNumberGenerator = SplitMix64(seed:69)
+        var randomNumberGenerator = SplitMix64(seed: UInt64(seed))
         var numberCells: [NumberCell] = []
         for index in 0..<size*size {
             let puzzleValue = Int.random(in: 0...9, using: &randomNumberGenerator)
@@ -149,6 +151,15 @@ struct Grid {
             return totalGridCellIndexPaths + [indexPath]
         }
     }
+    
+    mutating func clear() {
+        var numberCells: [NumberCell] = []
+        for var numberCell in self.numberCells {
+            numberCell.destiny = .undecided
+            numberCells.append(numberCell)
+        }
+        self.numberCells = numberCells
+    }
 }
 
 enum GridCell {
@@ -208,8 +219,8 @@ class ViewController: UIViewController {
     
     var grid: Grid
     
-    init(size: Int) {
-        self.grid = Grid(size: size)
+    init(seed: Int, size: Int) {
+        self.grid = Grid(seed: seed, size: size)
         
         super.init(nibName: nil, bundle: nil)
     }
@@ -229,14 +240,25 @@ class ViewController: UIViewController {
         abort()
     }
     
+    var collectionViewFlowLayout: UICollectionViewFlowLayout!
     var collectionView: UICollectionView!
+    var stackView: UIStackView!
+    var stackViewPortraitConstraints: [NSLayoutConstraint]!
+    var stackViewLandscapeConstraints: [NSLayoutConstraint]!
+    
+    var clearButton: UIButton!
+    var newGridButton: UIButton!
     
     override func loadView() {
         super.loadView()
         
         self.view.translatesAutoresizingMaskIntoConstraints = false
         
-        let collectionViewFlowLayout: UICollectionViewFlowLayout = UICollectionViewFlowLayout()
+        self.collectionViewFlowLayout = UICollectionViewFlowLayout()
+        self.collectionViewFlowLayout.minimumInteritemSpacing = 0
+        self.collectionViewFlowLayout.minimumLineSpacing = 0
+        self.collectionViewFlowLayout.sectionInset = .zero
+        
         self.collectionView = UICollectionView(frame: self.view.bounds, collectionViewLayout: collectionViewFlowLayout)
         self.collectionView.register(BlankCollectionViewCell.self, forCellWithReuseIdentifier: BlankCollectionViewCell.identifier)
         self.collectionView.register(NumberCollectionViewCell.self, forCellWithReuseIdentifier: NumberCollectionViewCell.identifier)
@@ -244,11 +266,35 @@ class ViewController: UIViewController {
         self.collectionView.dataSource = self
         self.collectionView.delegate = self
         
+        self.clearButton = UIButton(configuration: .plain(), primaryAction: UIAction(title: "Clear", handler: { [weak self] action in
+            guard let self = self else {
+                return
+            }
+            
+            self.grid.clear()
+            self.collectionView.reloadData()
+        }))
+        self.newGridButton = UIButton(configuration: .plain(), primaryAction: UIAction(title: "New Puzzle", handler: { [weak self] action in
+            guard let self = self else {
+                return
+            }
+            
+            self.grid = Grid(seed: self.grid.seed + 1, size: self.grid.size)
+            self.collectionView.reloadData()
+        }))
+        
+        self.stackView = UIStackView(arrangedSubviews: [
+            self.clearButton,
+            self.newGridButton,
+        ])
+        
         self.view.addSubview(self.collectionView)
+        self.view.addSubview(self.stackView)
         
         self.collectionView.backgroundColor = UIColor.orange
         
         self.collectionView.translatesAutoresizingMaskIntoConstraints = false
+        self.stackView.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
             self.collectionView.widthAnchor.constraint(equalTo: self.collectionView.heightAnchor),
@@ -262,6 +308,41 @@ class ViewController: UIViewController {
         let lowPriorityWidthConstraint = self.collectionView.widthAnchor.constraint(equalTo:self.view.layoutMarginsGuide.widthAnchor)
         lowPriorityWidthConstraint.priority = .defaultHigh
         lowPriorityWidthConstraint.isActive = true
+        
+        stackViewPortraitConstraints = [
+            self.stackView.centerXAnchor.constraint(equalTo: self.collectionView.centerXAnchor),
+            self.stackView.topAnchor.constraint(equalTo: self.collectionView.bottomAnchor),
+        ]
+        stackViewLandscapeConstraints = [
+            self.stackView.leadingAnchor.constraint(equalTo: self.collectionView.trailingAnchor),
+            self.stackView.centerYAnchor.constraint(equalTo: self.collectionView.centerYAnchor),
+        ]
+        
+        self.updateLayout()
+    }
+    
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        
+        coordinator.animate(alongsideTransition: nil) { _ in
+            self.updateLayout()
+        }
+    }
+    
+    private func updateLayout() {
+        if (self.view.bounds.width < self.view.bounds.height) {
+            self.stackView.alignment = .firstBaseline
+            self.stackView.axis = .horizontal
+            NSLayoutConstraint.deactivate(self.stackViewLandscapeConstraints)
+            NSLayoutConstraint.activate(self.stackViewPortraitConstraints)
+        } else {
+            self.stackView.alignment = .leading
+            self.stackView.axis = .vertical
+            self.stackView.spacing = UIStackView.spacingUseSystem
+            NSLayoutConstraint.deactivate(self.stackViewPortraitConstraints)
+            NSLayoutConstraint.activate(self.stackViewLandscapeConstraints)
+        }
+        self.collectionViewFlowLayout.invalidateLayout()
     }
 }
 
@@ -293,14 +374,10 @@ extension ViewController: UICollectionViewDataSource {
 
 extension ViewController: UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        guard let collectionViewFlowLayout = collectionViewLayout as? UICollectionViewFlowLayout,
-              let collectionView = collectionViewFlowLayout.collectionView else {
-            abort()
-        }
-        
-        let dimension = min(collectionView.frame.width, collectionView.frame.height) / Double(self.grid.sizeAndTotal) - collectionViewFlowLayout.minimumInteritemSpacing
+        let dimension = min(collectionView.frame.width, collectionView.frame.height) / Double(self.grid.sizeAndTotal)
         return CGSize(width: dimension, height: dimension)
     }
+    
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         var grid = self.grid
         let updatedIndexPaths = grid.updatedIndexPathsAfterTappingGridCell(at: indexPath)
